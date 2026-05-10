@@ -135,6 +135,13 @@ One of three NYC fine-tuned foundation models in this family.
 - NOAA CO-OPS station 8518750 (The Battery, NY): US Government public
   domain. https://api.tidesandcurrents.noaa.gov/api/prod/
 
+## AI-assisted authoring
+
+Portions of this repository were drafted with the assistance of large
+language models. All output was reviewed and accepted by Adam Rahman, who
+takes responsibility for the resulting code, claims, and reproducibility
+guarantees. The full disclosure is in [`NOTICE`](NOTICE).
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE).
