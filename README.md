@@ -1,0 +1,103 @@
+# Granite-TTM-r2-Battery-Surge
+
+GitHub home for [`huggingface.co/msradam/Granite-TTM-r2-Battery-Surge`](https://huggingface.co/msradam/Granite-TTM-r2-Battery-Surge).
+Source code, eval, gap analysis, and reproduction harness for the model.
+
+NYC-specific fine-tune of [`ibm-granite/granite-timeseries-ttm-r2`](https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2)
+(1.5M params) for storm-surge residual nowcasting at NOAA tide gauge
+8518750 (The Battery, lower Manhattan). Trained on AMD Instinct MI300X
+via AMD Developer Cloud. Apache-2.0.
+
+## What it does
+
+- **Input**: 1024 hours (~43 days) of hourly surge residual at the
+  Battery (observed water level minus astronomical tide prediction).
+- **Output**: next 96 hours (4 days) of forecast surge residual in metres.
+- **Use case**: nor'easter / hurricane nowcasts as one signal in a
+  multi-source emergency-planning pipeline.
+
+## Sniff-test results (real NOAA data)
+
+8/10 cases pass. Two "failures" are correct out-of-distribution
+behaviour at non-Battery stations — the fine-tune was trained on the
+Battery only.
+
+| case | history window | expected | predicted peak |
+|---|---|---|---:|
+| Hurricane Ida 2021 | Jul-Aug 2021 → Sept 1 | storm | **+0.36 m** ✅ |
+| December 2024 nor'easter | Nov-mid-Dec 2024 | storm | +0.34 m ✅ |
+| Feb 2026 nor'easter window | Nov 2025 → Feb 2026 | storm | +0.35 m ✅ |
+| Calm summer 2025 | Jun-mid-Jul 2025 | calm | 0.15 m ✅ |
+| Calm winter 2025 | Jan-mid-Feb 2025 | calm | 0.13 m ✅ |
+| Spring 2026 calm | Mar-mid-Apr 2026 | calm | 0.12 m ✅ |
+| Battery live (last 30 days) | rolling | any | 0.10 m ✅ |
+| Kings Point live | rolling | any | 0.18 m ✅ |
+| Kings Point calm 2025 | Jun-mid-Jul 2025 | calm | 0.18 m ❌ (OOD) |
+| Sandy Hook calm 2025 | Jun-mid-Jul 2025 | calm | 0.16 m ❌ (OOD) |
+
+## Headline reproduction (M3 Air, CPU fp32)
+
+| | MAE (m) |
+|---|---:|
+| Card claim (12k 2023-2024 windows, AMD box) | 0.1091 |
+| **This reconstruction (40 post-cutoff windows)** | **0.1318** |
+| Zero-shot TTM r2 base | 0.1291 |
+| Persistence baseline | 0.1866 |
+
+**Stratified by surge magnitude** (the actual operating regime):
+
+| target peak | n | fine-tune MAE | zero-shot MAE | persistence | ft vs zs |
+|---|---:|---:|---:|---:|---:|
+| ≥0.30 m | 30 | 0.1521 | 0.1473 | 0.2205 | -3.3% |
+| ≥0.50 m | 9 | 0.2238 | 0.2377 | 0.3526 | **+5.9%** |
+| ≥0.70 m | 3 | 0.3239 | 0.3615 | 0.6715 | **+10.4%** |
+
+Fine-tune wins where it matters; ties zero-shot on calm.
+
+## Bench (M3 Air, CPU fp32)
+
+- 17.7 ms / call (n=30, post warm-up)
+- 0.21 J / call (estimated, M3 Air 12 W envelope; methodology in the
+  parent harness's `docs/ENERGY.md`)
+
+## Install + use
+
+```bash
+git clone https://github.com/msradam/Granite-TTM-r2-Battery-Surge
+cd Granite-TTM-r2-Battery-Surge
+uv venv --python 3.12
+uv pip install -e ".[dev]"
+
+# Run the held-out eval (fetches NOAA data, ~30 sec)
+uv run python -c "
+from granite_ttm_battery_surge.eval import run_eval
+from pathlib import Path
+run_eval(None, None, Path('eval/reports'))
+print('done')
+"
+
+# Or import + use directly
+uv run python -c "
+from granite_ttm_battery_surge import load_finetune, fetch_residual_series
+ft = load_finetune({'context_steps': 1024, 'horizon_steps': 96})
+_, history = fetch_residual_series('8518750', '20250101', '20250215', hourly=True)
+forecast = ft.predict(history[-1024:].astype('float32'), horizon=96)
+print(f'peak forecast residual: {abs(forecast).max():.3f} m')
+"
+```
+
+## Where this fits
+
+This is one of three NYC fine-tuned foundation models from the same
+family. The meta repo at
+[github.com/msradam/riprap-models](https://github.com/msradam/riprap-models)
+wires all three into a single Streamlit demo, a probe harness, a
+unified RESULTS table, and a procurement-ready compliance posture.
+
+The parent system that uses these three models is
+[github.com/msradam/riprap-nyc](https://github.com/msradam/riprap-nyc) —
+a citation-grounded NYC flood-exposure briefing system.
+
+## License
+
+Apache-2.0. NOAA CO-OPS data is US Government public domain.
